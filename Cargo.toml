@@ -1,3 +1,7 @@
+[workspace]
+resolver = "3"
+members = ["macros", "parser"]
+
 [package]
 name = "zankyou"
 version = "0.1.0"
@@ -11,6 +15,9 @@ categories = ["multimedia::audio"]
 build = "build.rs"
 default-run = "zankyou"
 
+[lib]
+path = "src/lib/mod.rs"
+
 [[bin]]
 name = "zankyou"
 path = "src/zankyou/main.rs"
@@ -19,15 +26,14 @@ path = "src/zankyou/main.rs"
 name = "zankyoud"
 path = "src/zankyoud/main.rs"
 
+[[bin]]
+name = "zankyouctl"
+path = "src/zankyouctl/main.rs"
+
 [dependencies]
-clap = { version = "4.5.41", features = [
-    "derive",
-    "cargo",
-    "wrap_help",
-    "unicode",
-    "string",
-    "unstable-styles",
-] }
+macros.path = "./macros"
+parser.path = "./parser"
+clap = { version = "4.5.41", features = ["derive", "cargo", "wrap_help", "unicode", "string", "unstable-styles"] }
 color-eyre = "0.6.5"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 derive_more = { version = "2.0.1", features = ["from"] }

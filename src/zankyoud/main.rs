@@ -5,6 +5,7 @@ use {
 	},
 	std::io,
 	tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+	zankyou::Command,
 };
 
 #[tokio::main]
@@ -39,14 +40,10 @@ async fn handle_conn(conn: Stream) -> io::Result<()> {
 	let mut buf = String::with_capacity(128);
 	let _ = recver.read_line(&mut buf).await?;
 
-	let reply = match buf {
-		s if s == "marco\n" => Some(b"polo\n"),
-		s if s == "ping\n" => Some(b"pong\n"),
-		_ => None,
+	let result = match buf.parse::<Command>() {
+		Ok(command) => format!("{:?}", command),
+		Err(error) => format!("{:?}", error),
 	};
-	if let Some(reply) = reply {
-		let _ = sender.write_all(reply).await?;
-	}
 
-	Ok(())
+	sender.write_all(&result.into_bytes()).await
 }
