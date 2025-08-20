@@ -1,6 +1,7 @@
 mod app_event;
 mod cli;
 mod component;
+mod config;
 mod tui;
 
 use clap::Parser;

@@ -57,12 +57,8 @@ impl LibraryComponent {
 	) -> eyre::Result<EventFlow> {
 		let mut viewport = query.get_mut(entity)?;
 		Ok(match event {
-			Event::App(AppEvent::CursorDown) => {
-				viewport.offset.y += 1;
-				EventFlow::Consume
-			}
-			Event::App(AppEvent::CursorUp) => {
-				viewport.offset.y = viewport.offset.y.saturating_sub(1);
+			Event::App(AppEvent::MoveCursor(direction)) => {
+				viewport.offset.y = viewport.offset.y.saturating_add_signed(direction.y());
 				EventFlow::Consume
 			}
 			_ => EventFlow::Propagate,

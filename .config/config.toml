@@ -1,8 +1,9 @@
-[keys.home]
-"<q>" = "quit"
-"<Ctrl-d>" = "quit"
-"<Ctrl-c>" = "quit"
-"<Ctrl-z>" = "suspend"
-"<?>" = "help"
-"<m>" = "marco"
-"<p>" = "ping"
+[keys]
+quit = "q"
+cursor-left = ["h", "<Left>"]
+cursor-down = ["j", "<Down>"]
+cursor-up = ["k", "<Up>"]
+cursor-right = ["l", "<Right>"]
+"volume set +5" = "+"
+"volume set -5" = "-"
+"play toggle" = "<Space>"
