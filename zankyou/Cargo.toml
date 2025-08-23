@@ -53,7 +53,8 @@ tokio = { version = "1.46.1", features = ["full"] }
 tokio-util = "0.7.15"
 toml = "0.9.2"
 thiserror = "2.0.14"
-serde_with = { version = "3.14.0", default-features = false, features = ["macros"] }
+serde_with = "3.14.0"
+smallvec = { version = "1.15.1", features = ["serde"] }
 
 [build-dependencies]
 anyhow = "1.0.98"

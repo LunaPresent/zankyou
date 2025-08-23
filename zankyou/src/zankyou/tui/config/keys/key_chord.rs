@@ -1,25 +1,55 @@
 use std::{fmt, str::FromStr};
 
-use crossterm::event::{KeyCode, KeyModifiers};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
-use thiserror::Error;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-#[derive(Debug, SerializeDisplay, DeserializeFromStr)]
+use super::error::KeyChordParseError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub struct KeyChord {
 	pub key: KeyCode,
 	pub mods: KeyModifiers,
 }
 
+impl Ord for KeyChord {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.partial_cmp(other).expect(
+			"KeyCode and KeyModifiers could derive Ord, they just forgot. \
+				Therefore partial_cmp should never return None.",
+		)
+	}
+}
+
 impl KeyChord {
-	pub fn from_char(ch: char) -> Self {
-		Self {
-			key: KeyCode::Char(ch),
-			mods: KeyModifiers::NONE,
-		}
+	pub fn new(key: KeyCode, mods: KeyModifiers) -> Self {
+		Self { key, mods }.normalise()
 	}
 
-	pub fn new(key: KeyCode, mods: KeyModifiers) -> Self {
-		Self { key, mods }
+	pub fn from_char(ch: char) -> Self {
+		Self::new(KeyCode::Char(ch), KeyModifiers::NONE)
+	}
+
+	pub fn from_event(event: KeyEvent) -> Self {
+		Self::new(event.code, event.modifiers)
+	}
+
+	pub fn normalise(self) -> Self {
+		if let KeyCode::Char(c) = self.key
+			&& c.is_ascii_uppercase()
+		{
+			Self {
+				key: self.key,
+				mods: self.mods.union(KeyModifiers::SHIFT),
+			}
+		} else if let KeyCode::Char(c) = self.key
+			&& self.mods.contains(KeyModifiers::SHIFT)
+		{
+			Self {
+				key: KeyCode::Char(c.to_ascii_uppercase()),
+				mods: self.mods,
+			}
+		} else {
+			self
+		}
 	}
 }
 
@@ -57,6 +87,8 @@ impl fmt::Display for KeyChord {
 			KeyCode::PageUp => write!(f, "PageUp"),
 			KeyCode::PageDown => write!(f, "PageDown"),
 			KeyCode::Insert => write!(f, "Insert"),
+			KeyCode::Char(c) => write!(f, "{}", c),
+			KeyCode::F(n) => write!(f, "F{}", n),
 			key => write!(f, "{}", key),
 		}
 	}
@@ -108,6 +140,18 @@ impl FromStr for KeyChord {
 						"pageup" => KeyCode::PageUp,
 						"pagedown" => KeyCode::PageDown,
 						"insert" => KeyCode::Insert,
+						"f1" => KeyCode::F(1),
+						"f2" => KeyCode::F(2),
+						"f3" => KeyCode::F(3),
+						"f4" => KeyCode::F(4),
+						"f5" => KeyCode::F(5),
+						"f6" => KeyCode::F(6),
+						"f7" => KeyCode::F(7),
+						"f8" => KeyCode::F(8),
+						"f9" => KeyCode::F(9),
+						"f10" => KeyCode::F(10),
+						"f11" => KeyCode::F(11),
+						"f12" => KeyCode::F(12),
 						_ => return Err(KeyChordParseError::InvalidKey),
 					}
 				};
@@ -115,14 +159,4 @@ impl FromStr for KeyChord {
 			}
 		}
 	}
-}
-
-#[derive(Debug, Error, Clone, Copy)]
-pub enum KeyChordParseError {
-	#[error("empty string")]
-	EmptyString,
-	#[error("invalid modifier identifier")]
-	InvalidModifier,
-	#[error("invalid key identifier")]
-	InvalidKey,
 }
