@@ -38,7 +38,7 @@ impl KeyChord {
 		{
 			Self {
 				key: self.key,
-				mods: self.mods.union(KeyModifiers::SHIFT),
+				mods: self.mods | KeyModifiers::SHIFT,
 			}
 		} else if let KeyCode::Char(c) = self.key
 			&& self.mods.contains(KeyModifiers::SHIFT)
@@ -109,13 +109,17 @@ impl FromStr for KeyChord {
 					.unwrap_or(0);
 				let (mod_str, key_str) = s.split_at(split_i);
 				for m in mod_str.split_terminator('-') {
-					mods.insert(match m {
+					let new_mod = match m {
 						"S" | "s" => KeyModifiers::SHIFT,
 						"C" | "c" => KeyModifiers::CONTROL,
 						"A" | "a" | "M" | "m" => KeyModifiers::ALT,
 						"D" | "d" => KeyModifiers::SUPER,
 						_ => return Err(KeyChordParseError::InvalidModifier),
-					});
+					};
+					if mods.contains(new_mod) {
+						return Err(KeyChordParseError::DuplicateModifier);
+					}
+					mods |= new_mod;
 				}
 				let key = if key_str.chars().count() == 1 {
 					KeyCode::Char(key_str.chars().next().unwrap())
@@ -158,5 +162,172 @@ impl FromStr for KeyChord {
 				Ok(KeyChord::new(key, mods))
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn new_does_normalise() {
+		let lower_shift = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::SHIFT,
+		};
+		let new = KeyChord::new(KeyCode::Char('A'), KeyModifiers::NONE);
+
+		assert_eq!(new, lower_shift.normalise());
+	}
+
+	#[test]
+	fn normalise_retains_mods() {
+		let with_ctrl_no_caps = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::CONTROL,
+		}
+		.normalise();
+		let with_ctrl = KeyChord {
+			key: KeyCode::Char('A'),
+			mods: KeyModifiers::CONTROL,
+		}
+		.normalise();
+
+		assert_eq!(with_ctrl_no_caps.mods, KeyModifiers::CONTROL);
+		assert_eq!(with_ctrl.mods, KeyModifiers::CONTROL | KeyModifiers::SHIFT)
+	}
+
+	#[test]
+	fn normalise_equivalent_makes_equal() {
+		let lower_no_shift = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::NONE,
+		};
+		let upper_no_shift = KeyChord {
+			key: KeyCode::Char('A'),
+			mods: KeyModifiers::NONE,
+		};
+		let lower_shift = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::SHIFT,
+		};
+		let upper_shift = KeyChord {
+			key: KeyCode::Char('A'),
+			mods: KeyModifiers::SHIFT,
+		};
+
+		assert_ne!(lower_no_shift, upper_no_shift);
+		assert_ne!(lower_no_shift, lower_shift);
+		assert_ne!(lower_no_shift, upper_shift);
+		assert_ne!(upper_no_shift, lower_shift);
+		assert_ne!(upper_no_shift, upper_shift);
+		assert_ne!(lower_shift, upper_shift);
+
+		let lower_no_shift = lower_no_shift.normalise();
+		let upper_no_shift = upper_no_shift.normalise();
+		let lower_shift = lower_shift.normalise();
+		let upper_shift = upper_shift.normalise();
+
+		assert_ne!(lower_no_shift, upper_no_shift);
+		assert_ne!(lower_no_shift, lower_shift);
+		assert_ne!(lower_no_shift, upper_shift);
+
+		assert_eq!(upper_no_shift, lower_shift);
+		assert_eq!(upper_no_shift, upper_shift);
+		assert_eq!(lower_shift, upper_shift);
+	}
+
+	#[test]
+	fn display() {
+		let f = KeyChord {
+			key: KeyCode::Char('f'),
+			mods: KeyModifiers::NONE,
+		};
+		let alt_a = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::ALT,
+		};
+		let hyper_space = KeyChord {
+			key: KeyCode::Char(' '),
+			mods: KeyModifiers::SUPER
+				| KeyModifiers::ALT
+				| KeyModifiers::CONTROL
+				| KeyModifiers::SHIFT,
+		};
+		let esc = KeyChord {
+			key: KeyCode::Esc,
+			mods: KeyModifiers::NONE,
+		};
+		let shift_f10 = KeyChord {
+			key: KeyCode::F(10),
+			mods: KeyModifiers::SHIFT,
+		};
+
+		assert_eq!(f.to_string(), "f");
+		assert_eq!(alt_a.to_string(), "A-a");
+		assert_eq!(hyper_space.to_string(), "D-A-C-S-Space");
+		assert_eq!(esc.to_string(), "Esc");
+		assert_eq!(shift_f10.to_string(), "S-F10");
+	}
+
+	#[test]
+	fn from_str_happy_flow() -> Result<(), KeyChordParseError> {
+		let f = KeyChord {
+			key: KeyCode::Char('f'),
+			mods: KeyModifiers::NONE,
+		};
+		let alt_a = KeyChord {
+			key: KeyCode::Char('a'),
+			mods: KeyModifiers::ALT,
+		};
+		let hyper_space = KeyChord {
+			key: KeyCode::Char(' '),
+			mods: KeyModifiers::SUPER
+				| KeyModifiers::ALT
+				| KeyModifiers::CONTROL
+				| KeyModifiers::SHIFT,
+		};
+		let esc = KeyChord {
+			key: KeyCode::Esc,
+			mods: KeyModifiers::NONE,
+		};
+		let shift_f10 = KeyChord {
+			key: KeyCode::F(10),
+			mods: KeyModifiers::SHIFT,
+		};
+
+		assert_eq!("f".parse::<KeyChord>()?, f);
+		assert_eq!("A-a".parse::<KeyChord>()?, alt_a);
+		assert_eq!("D-A-C-S-Space".parse::<KeyChord>()?, hyper_space);
+		assert_eq!("a-C-d-S-sPaCe".parse::<KeyChord>()?, hyper_space);
+		assert_eq!("Esc".parse::<KeyChord>()?, esc);
+		assert_eq!("s-f10".parse::<KeyChord>()?, shift_f10);
+
+		Ok(())
+	}
+
+	#[test]
+	fn from_str_invalid_input_errors() {
+		assert_eq!("".parse::<KeyChord>(), Err(KeyChordParseError::EmptyString));
+		assert_eq!(
+			"Z-f".parse::<KeyChord>(),
+			Err(KeyChordParseError::InvalidModifier)
+		);
+		assert_eq!(
+			"CC-f".parse::<KeyChord>(),
+			Err(KeyChordParseError::InvalidModifier)
+		);
+		assert_eq!(
+			"C-c-f".parse::<KeyChord>(),
+			Err(KeyChordParseError::DuplicateModifier)
+		);
+		assert_eq!(
+			"foo".parse::<KeyChord>(),
+			Err(KeyChordParseError::InvalidKey)
+		);
+		assert_eq!(
+			"F99".parse::<KeyChord>(),
+			Err(KeyChordParseError::InvalidKey)
+		);
 	}
 }
