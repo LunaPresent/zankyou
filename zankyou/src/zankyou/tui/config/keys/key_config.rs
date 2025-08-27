@@ -21,9 +21,15 @@ struct InputMapping<A> {
 
 // TODO: documentation
 #[derive(Debug)]
-pub struct InputMap<A>(Vec<InputMapping<A>>);
+pub struct KeyConfig<A>(Vec<InputMapping<A>>);
 
-impl<A> InputMap<A>
+impl<A> Default for KeyConfig<A> {
+	fn default() -> Self {
+		Self(Vec::new())
+	}
+}
+
+impl<A> KeyConfig<A>
 where
 	A: Action,
 {
@@ -49,7 +55,7 @@ where
 	}
 }
 
-impl<A> Serialize for InputMap<A>
+impl<A> Serialize for KeyConfig<A>
 where
 	A: Serialize,
 {
@@ -72,7 +78,7 @@ impl<'de, A> Visitor<'de> for InputMapVisitor<A>
 where
 	A: Deserialize<'de>,
 {
-	type Value = InputMap<A>;
+	type Value = KeyConfig<A>;
 
 	fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
 		formatter
@@ -87,11 +93,11 @@ where
 		while let Some((action, inputs)) = access.next_entry::<A, OneOrMany<KeySequence>>()? {
 			input_mappings.push(InputMapping { action, inputs });
 		}
-		Ok(InputMap(input_mappings))
+		Ok(KeyConfig(input_mappings))
 	}
 }
 
-impl<'de, A> Deserialize<'de> for InputMap<A>
+impl<'de, A> Deserialize<'de> for KeyConfig<A>
 where
 	A: Deserialize<'de>,
 {
@@ -152,7 +158,7 @@ mod tests {
 
 	#[test]
 	fn generate_key_map() -> eyre::Result<()> {
-		let input_map = InputMap(vec![
+		let key_config = KeyConfig(vec![
 			InputMapping {
 				action: InputAction::Quit,
 				inputs: OneOrMany::One(KeySequence::from_str("q")?),
@@ -187,7 +193,7 @@ mod tests {
 			},
 		]);
 
-		let key_map = input_map.generate_key_map();
+		let key_map = key_config.generate_key_map();
 
 		assert_eq!(key_map.len(), 9);
 
@@ -223,7 +229,7 @@ mod tests {
 
 	#[test]
 	fn serialise() -> eyre::Result<()> {
-		let input_map = InputMap(vec![
+		let key_config = KeyConfig(vec![
 			InputMapping {
 				action: InputAction::Quit,
 				inputs: OneOrMany::One(KeySequence::from_str("q")?),
@@ -258,7 +264,7 @@ mod tests {
 			},
 		]);
 
-		let to_json = serde_json::to_value(&input_map)?;
+		let to_json = serde_json::to_value(&key_config)?;
 
 		let json = json!({
 			"quit": "q",
@@ -283,16 +289,16 @@ mod tests {
 			"cursor-right": ["l", "<Right>"]
 		});
 
-		let input_map: InputMap<InputAction> = serde_json::from_value(json)?;
+		let key_config: KeyConfig<InputAction> = serde_json::from_value(json)?;
 
-		println!("{}", serde_json::to_string_pretty(&input_map)?);
+		println!("{}", serde_json::to_string_pretty(&key_config)?);
 
-		assert_eq!(input_map.0.len(), 5);
-		assert_eq!(input_map.0[0].action, InputAction::CursorDown);
-		assert_eq!(input_map.0[1].action, InputAction::CursorLeft);
-		assert_eq!(input_map.0[2].action, InputAction::CursorRight);
-		assert_eq!(input_map.0[3].action, InputAction::CursorUp);
-		assert_eq!(input_map.0[4].action, InputAction::Quit);
+		assert_eq!(key_config.0.len(), 5);
+		assert_eq!(key_config.0[0].action, InputAction::CursorDown);
+		assert_eq!(key_config.0[1].action, InputAction::CursorLeft);
+		assert_eq!(key_config.0[2].action, InputAction::CursorRight);
+		assert_eq!(key_config.0[3].action, InputAction::CursorUp);
+		assert_eq!(key_config.0[4].action, InputAction::Quit);
 
 		Ok(())
 	}

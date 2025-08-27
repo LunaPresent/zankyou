@@ -38,23 +38,25 @@ where
 		}
 	}
 
-	// TODO: documentation
-	pub fn with_component<B>(mut self, component_bundle: B) -> Self
+	/// Adds a new component to the bevy ecs
+	pub fn with_component<B>(mut self, component_bundle: B) -> eyre::Result<Self>
 	where
 		B: Bundle,
 	{
 		self.ecs.add_component(component_bundle);
-		self
+		self.ecs.init()?;
+		Ok(self)
 	}
 
-	// TODO: documentation
-	pub fn with_focussed_component<B>(mut self, component_bundle: B) -> Self
+	/// Adds a new component to the bevy ecs and focusses it
+	pub fn with_main_component<B>(mut self, component_bundle: B) -> eyre::Result<Self>
 	where
 		B: Bundle,
 	{
 		let entity = self.ecs.add_component(component_bundle);
 		self.ecs.set_focus(entity);
-		self
+		self.ecs.init()?;
+		Ok(self)
 	}
 
 	// TODO: documentation
