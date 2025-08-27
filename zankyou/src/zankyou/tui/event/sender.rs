@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 
 use super::{Dispatch, Event, EventDispatch};
 
-pub trait EventSender<E> {
+pub(crate) trait EventSender<E> {
 	/// Get a reference to the sender
 	///
 	/// This sender can be cloned and moved into a thread to implement async replies

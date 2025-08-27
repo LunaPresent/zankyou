@@ -1,8 +1,19 @@
+mod async_queue;
+mod cursor_pos;
+mod flow;
+mod focus;
+mod queue;
+
+pub use async_queue::AsyncEventQueue;
+pub use cursor_pos::CursorPos;
+pub use flow::EventFlow;
+pub use focus::Focus;
+pub use queue::EventQueue;
+
 use bevy_ecs::{
 	entity::Entity,
 	hierarchy::{ChildOf, Children},
 	query::Without,
-	resource::Resource,
 	system::{In, InMut, InRef, Local, Query, Res, ResMut, RunSystemOnce as _},
 	world::World,
 };
@@ -14,61 +25,6 @@ use super::{
 	Area, Dispatch, Event, EventDispatch, Viewport,
 	ui_component::{UpdateHandle, UpdateSystemId},
 };
-
-/// Signify whether an [`update system`][us] should consume or propagate an event
-///
-/// This value must be returned from an [`update system`][us] to tell the dispatcher
-/// how it should handle the event after running the system with it
-/// The value is ignored if the event was dispatched as [`Dispatch::Broadcast`]
-///
-/// [us]: super::UpdateSystem
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub enum EventFlow {
-	/// Signal to the system dispatcher to stop propagating the event
-	Consume,
-	/// Signal to the system dispatcher to bubble the event up the hierarchy,
-	/// calling the parent entity's update system with the same event
-	Propagate,
-}
-
-/// Global resource that marks the currently focussed entity
-///
-/// It can be set during app setup, using [`App::with_focussed_component`][wfc]
-/// or it can be manually modified in a system using a [`ResMut<Focus>`] parameter
-///
-/// This resource is automatically added to the world at the start of execution
-/// If no entity has been focussed the target will be [`Entity::PLACEHOLDER`]
-///
-/// [wfc]: crate::tui::app::App::with_focussed_component
-#[derive(Debug, Resource)]
-pub struct Focus {
-	pub target: Entity,
-}
-
-impl Default for Focus {
-	fn default() -> Self {
-		Self {
-			target: Entity::PLACEHOLDER,
-		}
-	}
-}
-
-/// Global resource that holds the last reported cursor position.
-/// This resource is automatically added to the world at the start of execution
-#[derive(Debug, Resource)]
-pub struct CursorPos {
-	pub x: u16,
-	pub y: u16,
-}
-
-impl Default for CursorPos {
-	fn default() -> Self {
-		Self {
-			x: u16::MAX,
-			y: u16::MAX,
-		}
-	}
-}
 
 #[derive(Debug)]
 struct EntityUpdateInfo<E>
@@ -125,24 +81,30 @@ where
 
 		Ok(match ed.dispatch {
 			Dispatch::Broadcast => {
-				for target in self.update_queue.iter() {
+				for target in &self.update_queue {
 					world.run_system_with(target.system, (target.entity, &ed.event))??;
 				}
 				Some(ed.event)
 			}
-			_ => {
-				let mut full_propagate = true;
-				for target in self.update_queue.iter() {
-					let flow =
-						world.run_system_with(target.system, (target.entity, &ed.event))??;
-					if flow == EventFlow::Consume {
-						full_propagate = false;
-						break;
-					}
-				}
-				if full_propagate { Some(ed.event) } else { None }
-			}
+			_ => self.target_dispatch(ed.event, world)?,
 		})
+	}
+
+	fn target_dispatch(
+		&self,
+		event: Event<E>,
+		world: &mut World,
+	) -> eyre::Result<Option<Event<E>>> {
+		for target in &self.update_queue {
+			let flow = world.run_system_with(target.system, (target.entity, &event))??;
+			match flow {
+				EventFlow::Consume => {
+					return Ok(None);
+				}
+				EventFlow::Propagate => (),
+			}
+		}
+		Ok(Some(event))
 	}
 
 	fn find_input_entities(
@@ -159,10 +121,12 @@ where
 		components: Query<(Entity, &UpdateHandle<E>)>,
 	) {
 		for (entity, handle) in components {
-			targets.push(EntityUpdateInfo {
-				entity,
-				system: **handle,
-			});
+			for system in handle.iter() {
+				targets.push(EntityUpdateInfo {
+					entity,
+					system: *system,
+				});
+			}
 		}
 	}
 
@@ -198,10 +162,12 @@ where
 				..
 			}) => {
 				for (entity, handle) in broadcast_components {
-					targets.push(EntityUpdateInfo {
-						entity,
-						system: **handle,
-					});
+					for system in handle.iter() {
+						targets.push(EntityUpdateInfo {
+							entity,
+							system: *system,
+						});
+					}
 				}
 				return Ok(());
 			}
@@ -236,10 +202,12 @@ where
 		parents: Query<&ChildOf>,
 	) {
 		if let Ok(handle) = handles.get(head) {
-			targets.push(EntityUpdateInfo {
-				entity: head,
-				system: **handle,
-			});
+			for system in handle.iter() {
+				targets.push(EntityUpdateInfo {
+					entity: head,
+					system: *system,
+				});
+			}
 		}
 		if let Ok(parent) = parents.get(head) {
 			Self::bubble_entities(parent.parent(), targets, handles, parents);

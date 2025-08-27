@@ -1,7 +1,7 @@
 use bevy_ecs::{
 	component::Component,
 	entity::Entity,
-	system::{Commands, In, InMut, Query},
+	system::{Commands, In, InMut, Query, Res},
 };
 use color_eyre::eyre;
 use ratatui::{
@@ -11,8 +11,12 @@ use ratatui::{
 };
 
 use super::{ControlPanelComponent, LibraryComponent, NavbarComponent};
-use crate::tui::ecs::{
-	Area, EntityCommandsExt as _, InitInput, InitSystem, RenderInput, RenderSystem,
+use crate::{
+	config::UserConfig,
+	tui::{
+		config::{Config, KeyHandler},
+		ecs::{Area, EntityCommandsExt as _, InitInput, InitSystem, RenderInput, RenderSystem},
+	},
 };
 
 #[derive(Debug, Component)]
@@ -36,11 +40,13 @@ impl Default for RootComponent {
 impl RootComponent {
 	fn init(
 		In(entity): InitInput,
+		config: Res<Config<UserConfig>>,
 		mut query: Query<&mut Self>,
 		mut cmd: Commands,
 	) -> eyre::Result<()> {
 		let mut comp = query.get_mut(entity)?;
 		let mut ec = cmd.entity(entity);
+		ec.insert_if_new(KeyHandler::new(config.keys.generate_key_map()));
 		comp.control_panel = ec.spawn_child(ControlPanelComponent::default()).id();
 		comp.nav_bar = ec.spawn_child(NavbarComponent::default()).id();
 		comp.library = ec.spawn_child(LibraryComponent::default()).id();

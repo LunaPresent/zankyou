@@ -4,7 +4,7 @@ use bevy_ecs::bundle::Bundle;
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::tui::event::AppEvent;
+use crate::tui::event::{AppEvent, EventSender};
 
 use super::{
 	ecs::ComponentSystem,
@@ -30,11 +30,13 @@ where
 {
 	// TODO: documentation
 	pub fn new() -> Self {
+		let events = EventQueue::new();
+		let ecs = ComponentSystem::new(events.sender().clone());
 		Self {
 			should_quit: false,
 			should_suspend: false,
-			events: EventQueue::new(),
-			ecs: ComponentSystem::new(),
+			events,
+			ecs,
 		}
 	}
 
@@ -65,8 +67,14 @@ where
 		let mut tui = Terminal::new()?;
 		tui.enter()?;
 		while !self.should_quit {
-			let ed = self.events.next().await?;
-			self.handle_event(&mut tui, ed)?;
+			let mut next_ed = Some(self.events.next().await?);
+			while let Some(ed) = next_ed {
+				let result = self.ecs.handle_event(ed)?;
+				if let Some(event) = result.propagated {
+					self.handle_propagated_event(&mut tui, event)?;
+				}
+				next_ed = result.requeued;
+			}
 			if self.should_suspend {
 				self.should_suspend = false;
 				tui.suspend()?;
@@ -78,18 +86,16 @@ where
 		Ok(())
 	}
 
-	fn handle_event(&mut self, tui: &mut Terminal, ed: EventDispatch<E>) -> eyre::Result<()> {
-		if let Some(event) = self.ecs.handle_event(ed)? {
-			match event {
-				Event::Render => {
-					tui.try_draw(|frame| self.ecs.draw(frame).map_err(io::Error::other))?;
-				}
-				Event::Key(key_event) => {
-					self.handle_special_keys(key_event);
-				}
-				Event::App(app_event) if app_event.is_quit() => self.should_quit = true,
-				_ => (),
+	fn handle_propagated_event(&mut self, tui: &mut Terminal, event: Event<E>) -> eyre::Result<()> {
+		match event {
+			Event::Render(_) => {
+				tui.try_draw(|frame| self.ecs.draw(frame).map_err(io::Error::other))?;
 			}
+			Event::Key(key_event) => {
+				self.handle_special_keys(key_event);
+			}
+			Event::App(app_event) if app_event.is_quit() => self.should_quit = true,
+			_ => (),
 		}
 		Ok(())
 	}
@@ -105,15 +111,4 @@ where
 			_ => (),
 		}
 	}
-
-	// fn map_key_events(&self, key_event: KeyEvent) -> Option<AppEvent> {
-	// 	match key_event.code {
-	// 		KeyCode::Esc | KeyCode::Char('q') => Some(AppEvent::Quit),
-	// 		KeyCode::Char('j') => Some(AppEvent::CursorDown),
-	// 		KeyCode::Char('k') => Some(AppEvent::CursorUp),
-	// 		KeyCode::Char('h') => Some(AppEvent::CursorLeft),
-	// 		KeyCode::Char('l') => Some(AppEvent::CursorRight),
-	// 		_ => None,
-	// 	}
-	// }
 }

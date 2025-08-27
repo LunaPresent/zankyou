@@ -5,8 +5,9 @@ mod rendering;
 mod ui_component;
 
 pub use entity_commands_ext::EntityCommandsExt;
-pub use event_handling::{CursorPos, EventFlow, Focus};
+pub use event_handling::{AsyncEventQueue, CursorPos, EventFlow, EventQueue, Focus};
 pub use rendering::{Area, Viewport};
+use tokio::sync::mpsc;
 pub use ui_component::{
 	InitInput, InitSystem, RenderInput, RenderSystem, UpdateInput, UpdateSystem,
 };
@@ -32,12 +33,14 @@ where
 
 impl<E> ComponentSystem<E>
 where
-	E: Send + Sync + Clone + 'static,
+	E: Send + Sync + 'static,
 {
-	pub fn new() -> Self {
+	pub fn new(event_sender: mpsc::UnboundedSender<EventDispatch<E>>) -> Self {
 		let mut world = World::new();
 		world.insert_resource(Focus::default());
 		world.insert_resource(CursorPos::default());
+		world.insert_resource(EventQueue::<E>::default());
+		world.insert_resource(AsyncEventQueue::<E>::new(event_sender));
 
 		ComponentSystem {
 			world,
@@ -63,11 +66,19 @@ where
 		Ok(())
 	}
 
-	pub fn handle_event(&mut self, ed: EventDispatch<E>) -> eyre::Result<Option<Event<E>>> {
+	pub fn handle_event(&mut self, ed: EventDispatch<E>) -> eyre::Result<HandleEventResult<E>> {
 		let event = self.update_context.handle_event(ed, &mut self.world)?;
 		self.world.run_system_cached(init_components)?;
 
-		Ok(event)
+		let requeued = self
+			.world
+			.get_resource_mut::<EventQueue<E>>()
+			.and_then(|mut queue| queue.pop());
+
+		Ok(HandleEventResult {
+			propagated: event,
+			requeued,
+		})
 	}
 
 	pub fn draw(&mut self, frame: &mut Frame) -> eyre::Result<()> {
@@ -75,4 +86,9 @@ where
 		self.render_context
 			.render(frame.buffer_mut(), area, &mut self.world)
 	}
+}
+
+pub struct HandleEventResult<E> {
+	pub propagated: Option<Event<E>>,
+	pub requeued: Option<EventDispatch<E>>,
 }

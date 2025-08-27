@@ -9,6 +9,7 @@ use bevy_ecs::{
 use color_eyre::eyre;
 use derive_more::Deref;
 use ratatui::buffer::Buffer;
+use smallvec::SmallVec;
 
 use super::{Area, Event, EventFlow};
 
@@ -102,7 +103,12 @@ where
 				.clone();
 			let system_id = system_registrar.register_system(world);
 			let mut entity = world.get_entity_mut(context.entity)?;
-			entity.insert(UpdateHandle(system_id));
+			entity.insert_if_new(UpdateHandle::<E>(SmallVec::new()));
+			entity
+				.get_mut::<UpdateHandle<E>>()
+				.expect("UpdateHandle component should've been added just now")
+				.0
+				.push(system_id);
 			Ok::<_, eyre::Error>(())
 		});
 	}
@@ -146,8 +152,8 @@ impl RenderSystem {
 #[derive(Debug, Component, Clone, Copy, Deref)]
 pub(super) struct InitHandle(InitSystemId);
 
-#[derive(Debug, Component, Clone, Copy, Deref)]
-pub(super) struct UpdateHandle<E>(UpdateSystemId<E>)
+#[derive(Debug, Component, Clone, Deref)]
+pub(super) struct UpdateHandle<E>(SmallVec<[UpdateSystemId<E>; 4]>)
 where
 	E: 'static;
 

@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use super::{EventDispatch, EventSender};
 
 #[derive(Debug)]
-pub struct EventQueue<E> {
+pub(crate) struct EventQueue<E> {
 	sender: mpsc::UnboundedSender<EventDispatch<E>>,
 	receiver: mpsc::UnboundedReceiver<EventDispatch<E>>,
 }

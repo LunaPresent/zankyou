@@ -9,29 +9,13 @@ type MapIdx = u16;
 /// Denotes a mapping from [`KeySequence`] to a generic [`AppEvent`][ae]
 ///
 /// [ae]: crate::tui::event::AppEvent
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyMapping<E> {
 	/// The complete key sequence
 	pub key_sequence: KeySequence,
 	/// The event that should be triggered
 	pub app_event: E,
 }
-
-impl<E: Clone> Clone for KeyMapping<E> {
-	fn clone(&self) -> Self {
-		Self {
-			key_sequence: self.key_sequence.clone(),
-			app_event: self.app_event.clone(),
-		}
-	}
-}
-
-impl<E: PartialEq> PartialEq for KeyMapping<E> {
-	fn eq(&self, other: &Self) -> bool {
-		self.key_sequence == other.key_sequence && self.app_event == other.app_event
-	}
-}
-impl<E: Eq> Eq for KeyMapping<E> {}
 
 impl<E> KeyMapping<E> {
 	/// Creates a new `KeyMapping`
@@ -64,27 +48,27 @@ impl<E> KeyMapping<E> {
 ///
 /// // Filtering a single length key sequence mapping
 /// let filtered = key_map.match_key(KeyChord::from_char('G'), KeyMapMatch::new());
-/// assert_eq!(filtered.partial_matches(&key_map), &key_mappings[0..1]); // [G]
+/// assert_eq!(filtered.matches(&key_map), &key_mappings[0..1]); // [G]
 /// assert_eq!(filtered.full_matches(&key_map), &key_mappings[0..1]); // [G]
 ///
 /// // Filtering a multi length key sequence mapping
 /// let mut filtered = key_map.match_key(KeyChord::from_char('g'), KeyMapMatch::new());
-/// assert_eq!(filtered.partial_matches(&key_map), &key_mappings[1..4]); // [gd, gg, go]
+/// assert_eq!(filtered.matches(&key_map), &key_mappings[1..4]); // [gd, gg, go]
 /// assert_eq!(filtered.full_matches(&key_map), &[]);
 /// filtered = key_map.match_key(KeyChord::from_char('g'), filtered);
-/// assert_eq!(filtered.partial_matches(&key_map), &key_mappings[2..3]); // [gg]
+/// assert_eq!(filtered.matches(&key_map), &key_mappings[2..3]); // [gg]
 /// assert_eq!(filtered.full_matches(&key_map), &key_mappings[2..3]); // [gg]
 ///
 /// let mut filtered = key_map.match_key(KeyChord::from_char('h'), KeyMapMatch::new());
-/// assert_eq!(filtered.partial_matches(&key_map), &key_mappings[7..9]); // [h, hi]
+/// assert_eq!(filtered.matches(&key_map), &key_mappings[7..9]); // [h, hi]
 /// assert_eq!(filtered.full_matches(&key_map), &key_mappings[7..8]); // [h]
 /// filtered = key_map.match_key(KeyChord::from_char('i'), filtered);
-/// assert_eq!(filtered.partial_matches(&key_map), &key_mappings[8..9]); // [hi]
+/// assert_eq!(filtered.matches(&key_map), &key_mappings[8..9]); // [hi]
 /// assert_eq!(filtered.full_matches(&key_map), &key_mappings[8..9]); // [hi]
 /// ```
 ///
 /// [ae]: crate::tui::event::AppEvent
-#[derive(Debug, Deref)]
+#[derive(Debug, Clone, PartialEq, Eq, Deref)]
 pub struct KeyMap<E>(Vec<KeyMapping<E>>);
 
 impl<E> From<Vec<KeyMapping<E>>> for KeyMap<E> {
@@ -92,19 +76,6 @@ impl<E> From<Vec<KeyMapping<E>>> for KeyMap<E> {
 		Self(value).sorted()
 	}
 }
-
-impl<E: Clone> Clone for KeyMap<E> {
-	fn clone(&self) -> Self {
-		Self(self.0.clone())
-	}
-}
-
-impl<E: PartialEq> PartialEq for KeyMap<E> {
-	fn eq(&self, other: &Self) -> bool {
-		self.0 == other.0
-	}
-}
-impl<E: Eq> Eq for KeyMap<E> {}
 
 impl<E> KeyMap<E> {
 	/// Filters the key map by a next key chord in a sequence
@@ -147,10 +118,10 @@ impl<E> KeyMap<E> {
 			}
 		};
 
+		let mut full_match_end = 0;
 		if let Some(idx) = match_idx {
 			// unless intentionally stress testing, the amount of matching mappings should be
 			// reasonably small here, therefore let's linear search starting from `match_idx`
-
 			for idx in (match_start..idx).rev() {
 				if self[idx].key_sequence.get(next_key_idx) != Some(&key_chord) {
 					match_start = idx + 1;
@@ -163,11 +134,22 @@ impl<E> KeyMap<E> {
 					break;
 				}
 			}
+
+			// as None is less than Some(_), shorter sequences always come at the front
+			// therefore the full match slice will always be at the front
+			full_match_end = match_end;
+			for idx in match_start..match_end {
+				if self[idx].key_sequence.len() > (next_key_idx + 1) {
+					full_match_end = idx;
+					break;
+				}
+			}
 		}
 
 		KeyMapMatch {
 			match_start: match_start as MapIdx,
 			match_end: match_end as MapIdx,
+			full_match_end: full_match_end as MapIdx,
 			next_key_idx: prev_match.next_key_idx + 1,
 		}
 	}
@@ -183,6 +165,7 @@ impl<E> KeyMap<E> {
 pub struct KeyMapMatch {
 	match_start: MapIdx,
 	match_end: MapIdx,
+	full_match_end: MapIdx,
 	next_key_idx: u8,
 }
 
@@ -191,6 +174,7 @@ impl Default for KeyMapMatch {
 		Self {
 			match_start: 0,
 			match_end: MapIdx::MAX,
+			full_match_end: 0,
 			next_key_idx: 0,
 		}
 	}
@@ -206,31 +190,33 @@ impl KeyMapMatch {
 
 	/// Returns all partially or fully matching key mappings
 	///
-	/// A partial match is any key mapping for which the first n key chords of the key
+	/// A match is any key mapping for which the first n key chords of the key
 	/// sequence are equal to all n key chords recorded in this `KeyMapMatch`, in order
-	pub fn partial_matches<'a, E>(self, key_map: &'a KeyMap<E>) -> &'a [KeyMapping<E>] {
-		let match_start = self.match_start as usize;
-		let match_end = (self.match_end as usize).min(key_map.len());
-		&key_map.0[match_start..match_end]
+	pub fn matches<'a, E>(self, key_map: &'a KeyMap<E>) -> &'a [KeyMapping<E>] {
+		let from = self.match_start as usize;
+		let to = (self.match_end as usize).min(key_map.len());
+		&key_map.0[from..to]
 	}
 
 	/// Returns all fully matching key mappings
 	///
-	/// This is a subset of the set returned by [`KeyMapMatch::partial_matches`],
-	/// To be precise: any partial match where the key sequence has the same length as
+	/// This is a subset of the set returned by [`KeyMapMatch::matches`],
+	/// To be precise: any match where the key sequence has the same length as
 	/// the amount of key chords recorded in this `KeyMapMatch` is a full match
 	pub fn full_matches<'a, E>(self, key_map: &'a KeyMap<E>) -> &'a [KeyMapping<E>] {
-		// as None is less than Some(_), shorter sequences always come at the front
-		let match_start = self.match_start as usize;
-		let match_end = (self.match_end as usize).min(key_map.len());
-		let match_end = key_map.0[match_start..match_end]
-			.iter()
-			.enumerate()
-			.find_map(|(i, k)| {
-				(k.key_sequence.len() > self.next_key_idx as usize).then_some(i + match_start)
-			})
-			.unwrap_or(match_end);
-		&key_map.0[match_start..match_end]
+		let from = self.match_start as usize;
+		let to = self.full_match_end as usize;
+		&key_map.0[from..to]
+	}
+
+	/// Returns all fully matching key mappings
+	///
+	/// This is a subset of the set returned by [`KeyMapMatch::matches`],
+	/// Any match that isn't a full match is a partial match
+	pub fn partial_matches<'a, E>(self, key_map: &'a KeyMap<E>) -> &'a [KeyMapping<E>] {
+		let from = self.full_match_end as usize;
+		let to = (self.match_end as usize).min(key_map.len());
+		&key_map.0[from..to]
 	}
 }
 
@@ -265,18 +251,20 @@ mod tests {
 	}
 
 	#[test]
-	fn matcher_find_random() {
+	fn match_key_random() {
 		let key_map = create_key_map();
 		let key_match = key_map.match_key(KeyChord::from_char('b'), KeyMapMatch::new());
 
 		assert_eq!(key_match.match_start, 1);
 		assert_eq!(key_match.match_end, 4);
+		assert_eq!(key_match.full_match_end, 2);
 		assert_eq!(key_match.next_key_idx, 1);
 
 		let key_match = key_map.match_key(KeyChord::from_char('a'), key_match);
 
 		assert_eq!(key_match.match_start, 2);
 		assert_eq!(key_match.match_end, 3);
+		assert_eq!(key_match.full_match_end, 3);
 		assert_eq!(key_match.next_key_idx, 2);
 
 		let key_match = key_map.match_key(KeyChord::from_char('z'), key_match);
@@ -286,24 +274,27 @@ mod tests {
 	}
 
 	#[test]
-	fn matcher_find_middle() {
+	fn match_key_middle() {
 		let key_map = create_key_map();
 		let key_match = key_map.match_key(KeyChord::from_char('g'), KeyMapMatch::new());
 
 		assert_eq!(key_match.match_start, 5);
 		assert_eq!(key_match.match_end, 9);
+		assert_eq!(key_match.full_match_end, 5);
 		assert_eq!(key_match.next_key_idx, 1);
 
 		let key_match = key_map.match_key(KeyChord::from_char('o'), key_match);
 
 		assert_eq!(key_match.match_start, 5);
 		assert_eq!(key_match.match_end, 8);
+		assert_eq!(key_match.full_match_end, 6);
 		assert_eq!(key_match.next_key_idx, 2);
 
 		let key_match = key_map.match_key(KeyChord::from_char('o'), key_match);
 
 		assert_eq!(key_match.match_start, 7);
 		assert_eq!(key_match.match_end, 8);
+		assert_eq!(key_match.full_match_end, 8);
 		assert_eq!(key_match.next_key_idx, 3);
 
 		let key_match = key_map.match_key(KeyChord::from_char('s'), key_match);
@@ -313,12 +304,13 @@ mod tests {
 	}
 
 	#[test]
-	fn matcher_find_first() {
+	fn match_key_first() {
 		let key_map = create_key_map();
 		let key_match = key_map.match_key(KeyChord::from_char('a'), KeyMapMatch::new());
 
 		assert_eq!(key_match.match_start, 0);
 		assert_eq!(key_match.match_end, 1);
+		assert_eq!(key_match.full_match_end, 1);
 		assert_eq!(key_match.next_key_idx, 1);
 
 		let key_match = key_map.match_key(KeyChord::from_char('a'), key_match);
@@ -328,18 +320,20 @@ mod tests {
 	}
 
 	#[test]
-	fn matcher_find_last() {
+	fn match_key_last() {
 		let key_map = create_key_map();
 		let key_match = key_map.match_key(KeyChord::from_char('z'), KeyMapMatch::new());
 
 		assert_eq!(key_match.match_start, 10);
 		assert_eq!(key_match.match_end, 13);
+		assert_eq!(key_match.full_match_end, 10);
 		assert_eq!(key_match.next_key_idx, 1);
 
 		let key_match = key_map.match_key(KeyChord::from_char('z'), key_match);
 
 		assert_eq!(key_match.match_start, 12);
 		assert_eq!(key_match.match_end, 13);
+		assert_eq!(key_match.full_match_end, 13);
 		assert_eq!(key_match.next_key_idx, 2);
 
 		let key_match = key_map.match_key(KeyChord::from_char('z'), key_match);
@@ -349,15 +343,16 @@ mod tests {
 	}
 
 	#[test]
-	fn partial_matches() {
+	fn matches() {
 		let key_map = create_key_map();
 		let key_match = KeyMapMatch {
 			match_start: 5,
 			match_end: 8,
+			full_match_end: 6,
 			next_key_idx: 2,
 		};
 
-		let matches = key_match.partial_matches(&key_map);
+		let matches = key_match.matches(&key_map);
 		assert_eq!(matches.len(), 3);
 		assert_eq!(matches[0].key_sequence.to_string(), "go");
 		assert_eq!(matches[1].key_sequence.to_string(), "goa");
@@ -365,11 +360,11 @@ mod tests {
 	}
 
 	#[test]
-	fn partial_matches_blank() {
+	fn matches_blank() {
 		let key_map = create_key_map();
 		let key_match = KeyMapMatch::new();
 
-		let matches = key_match.partial_matches(&key_map);
+		let matches = key_match.matches(&key_map);
 		assert_eq!(matches.len(), 13);
 	}
 
@@ -379,6 +374,7 @@ mod tests {
 		let key_match = KeyMapMatch {
 			match_start: 5,
 			match_end: 8,
+			full_match_end: 6,
 			next_key_idx: 2,
 		};
 
@@ -394,5 +390,30 @@ mod tests {
 
 		let matches = key_match.full_matches(&key_map);
 		assert_eq!(matches.len(), 0);
+	}
+
+	#[test]
+	fn partial_matches() {
+		let key_map = create_key_map();
+		let key_match = KeyMapMatch {
+			match_start: 5,
+			match_end: 8,
+			full_match_end: 6,
+			next_key_idx: 2,
+		};
+
+		let matches = key_match.partial_matches(&key_map);
+		assert_eq!(matches.len(), 2);
+		assert_eq!(matches[0].key_sequence.to_string(), "goa");
+		assert_eq!(matches[1].key_sequence.to_string(), "goo");
+	}
+
+	#[test]
+	fn partial_matches_blank() {
+		let key_map = create_key_map();
+		let key_match = KeyMapMatch::new();
+
+		let matches = key_match.partial_matches(&key_map);
+		assert_eq!(matches.len(), 13);
 	}
 }

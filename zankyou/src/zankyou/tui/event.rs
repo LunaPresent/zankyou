@@ -2,11 +2,13 @@ mod queue;
 mod sender;
 mod task;
 
+use std::time::Duration;
+
 use bevy_ecs::entity::Entity;
 use crossterm::event::{KeyEvent, MouseEvent};
 
-pub use queue::EventQueue;
-pub use sender::EventSender;
+pub(super) use queue::EventQueue;
+pub(super) use sender::EventSender;
 
 #[derive(Debug, Clone)]
 pub struct EventDispatch<E> {
@@ -35,8 +37,8 @@ pub trait AppEvent {
 
 #[derive(Debug, Clone)]
 pub enum Event<E> {
-	Tick,
-	Render,
+	Tick(Duration),
+	Render(Duration),
 	App(E),
 	FocusGained,
 	FocusLost,

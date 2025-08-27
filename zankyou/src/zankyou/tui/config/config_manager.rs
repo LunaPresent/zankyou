@@ -42,7 +42,7 @@ where
 
 	fn init(
 		In(entity): InitInput,
-		mut query: Query<&mut ConfigManager<C>>,
+		mut query: Query<&mut Self>,
 		mut cmd: Commands,
 	) -> eyre::Result<()> {
 		let mut comp = query.get_mut(entity)?;

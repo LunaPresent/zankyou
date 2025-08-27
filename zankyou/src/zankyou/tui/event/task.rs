@@ -33,10 +33,10 @@ impl<E> EventTask<E> {
 					break;
 				}
 				_ = tick_interval.tick() => {
-					self.send(Dispatch::Broadcast, Event::Tick);
+					self.send(Dispatch::Broadcast, Event::Tick(tick_rate));
 				}
 				_ = render_interval.tick() => {
-					self.send(Dispatch::Broadcast, Event::Render);
+					self.send(Dispatch::Broadcast, Event::Render(frame_rate));
 				}
 				Some(Ok(evt)) = crossterm_events.next().fuse() => {
 					self.handle_crossterm_event(evt);
